@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Whale Scanner">
+    <title>Whale Scanner</title>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f5f7;
+            padding: 20px;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            padding: 30px 20px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+        .header h1 { font-size: 28px; margin-bottom: 8px; }
+        .header p { opacity: 0.9; font-size: 14px; }
+        .notification-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 16px;
+        }
+        .notification-enabled {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+        .notification-disabled {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+        .ticker-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 16px;
+            transition: transform 0.2s;
+        }
+        .ticker-card:active {
+            transform: scale(0.98);
+        }
+        .ticker-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1d4ed8;
+            margin-bottom: 8px;
+        }
+        .price { 
+            font-size: 20px; 
+            color: #666;
+            margin-bottom: 12px;
+        }
+        .sentiment-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .sentiment-bullish { 
+            background: #d4edda; 
+            color: #155724; 
+        }
+        .sentiment-bearish { 
+            background: #f8d7da; 
+            color: #721c24; 
+        }
+        .sentiment-neutral { 
+            background: #e2e3e5; 
+            color: #383d41; 
+        }
+        .squeeze-alert {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            color: white;
+            padding: 16px;
+            border-radius: 10px;
+            margin-top: 12px;
+            font-weight: 600;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+            transition: all 0.2s;
+        }
+        button:active {
+            transform: scale(0.98);
+            box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+        }
+        .token-display {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            word-break: break-all;
+            margin-top: 12px;
+            display: none;
+        }
+        .copy-button {
+            background: #6c757d;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐋 Whale Scanner</h1>
+            <p id="status">Loading...</p>
+        </div>
+        
+        <div id="notification-status" class="notification-card notification-disabled">
+            <strong>📱 Notifications:</strong> Not enabled
+        </div>
+        
+        <button id="enable-notifications" onclick="enableNotifications()">
+            🔔 Enable Push Notifications
+        </button>
+        
+        <div id="token-container" class="token-display">
+            <strong>Your Device Token:</strong><br>
+            <span id="device-token"></span>
+            <button class="copy-button" onclick="copyToken()">📋 Copy Token</button>
+        </div>
+        
+        <button onclick="refreshData()">
+            🔄 Refresh Data
+        </button>
+        
+        <div id="results" class="loading">
+            Loading scan results...
+        </div>
+    </div>
+    
+    <script>
+        // ============================================
+        // CONFIGURATION - REPLACE THESE VALUES
+        // ============================================
+        
+        // Firebase config - FROM STEP 3.4
+        const firebaseConfig = {
+        apiKey: "AIzaSyBfoylXQYvmsqAHXjStlrWKMN5TE_ShNN4",
+        authDomain: "whale-scanner-28b32.firebaseapp.com",
+        projectId: "whale-scanner-28b32",
+        storageBucket: "whale-scanner-28b32.firebasestorage.app",
+        messagingSenderId: "144848077396",
+        appId: "1:144848077396:web:dd0a25868c252b444923c1"
+        };
+        
+        // VAPID key - FROM STEP 3.5
+        const VAPID_KEY = "BCQMrEmtXuNQaHCBUbt-bZZmYNrjbiIpa-VN2V4zb05zowA_euwTY-KLe23k0QHI2Gudu-c8WN2Qse9T7-l3-YQ";
+        
+        // API URL - FROM STEP 4.4
+        const API_URL = 'https://whale-scanner-477606-820823585799.us-west1.run.app';
+        
+        // ============================================
+        // END CONFIGURATION
+        // ============================================
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const messaging = firebase.messaging();
+        
+        // Load data on page load
+        window.onload = function() {
+            loadLatestData();
+            checkNotificationPermission();
+        };
+        
+        function checkNotificationPermission() {
+            if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    document.getElementById('notification-status').className = 
+                        'notification-card notification-enabled';
+                    document.getElementById('notification-status').innerHTML = 
+                        '<strong>✅ Notifications:</strong> Enabled';
+                    document.getElementById('enable-notifications').style.display = 'none';
+                }
+            }
+        }
+        
+        async function enableNotifications() {
+            try {
+                const permission = await Notification.requestPermission();
+                
+                if (permission === 'granted') {
+                    const token = await messaging.getToken({
+                        vapidKey: VAPID_KEY
+                    });
+                    
+                    console.log('✅ FCM Token:', token);
+                    
+                    // Display token for user to copy
+                    document.getElementById('device-token').textContent = token;
+                    document.getElementById('token-container').style.display = 'block';
+                    
+                    alert('✅ Notifications enabled!\n\n📋 IMPORTANT: Copy the token shown below and save it. You\'ll need to add it to Cloud Run in the next step.');
+                    
+                    checkNotificationPermission();
+                } else {
+                    alert('❌ Notification permission denied. Please enable notifications in Safari settings.');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        function copyToken() {
+            const token = document.getElementById('device-token').textContent;
+            navigator.clipboard.writeText(token).then(() => {
+                alert('✅ Token copied to clipboard!');
+            });
+        }
+        
+        // Handle foreground messages
+        messaging.onMessage((payload) => {
+            console.log('Message received:', payload);
+            new Notification(payload.notification.title, {
+                body: payload.notification.body,
+                icon: '/icon.png',
+                badge: '/badge.png'
+            });
+        });
+        
+        async function loadLatestData() {
+            try {
+                document.getElementById('results').innerHTML = 
+                    '<div class="loading">Loading...</div>';
+                
+                const response = await fetch(`${API_URL}/api/latest`);
+                const data = await response.json();
+                
+                if (data.results && data.results.length > 0) {
+                    displayResults(data);
+                } else {
+                    document.getElementById('results').innerHTML = 
+                        '<div class="notification-card">No data available. Triggering scan...</div>';
+                    await fetch(`${API_URL}/api/scan`, { method: 'POST' });
+                    setTimeout(loadLatestData, 60000);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('results').innerHTML = 
+                    '<div class="notification-card">Error loading data: ' + error.message + '</div>';
+            }
+        }
+        
+        function displayResults(data) {
+            const results = data.results || [];
+            const timestamp = new Date(data.timestamp).toLocaleString('en-US', {
+                timeZone: 'America/New_York',
+                hour12: true
+            });
+            
+            document.getElementById('status').textContent = 
+                `Last scan: ${timestamp} ET • ${results.length} tickers`;
+            
+            let html = '';
+            
+            results.slice(0, 20).forEach(ticker => {
+                const sentimentClass = ticker.sentiment_score > 0 ? 
+                    'sentiment-bullish' : 
+                    ticker.sentiment_score < 0 ? 'sentiment-bearish' : 'sentiment-neutral';
+                
+                const priceChange = ticker.sentiment_score > 0 ? '▲' : 
+                                   ticker.sentiment_score < 0 ? '▼' : '•';
+                
+                html += `
+                    <div class="ticker-card">
+                        <div class="ticker-name">${ticker.ticker} ${priceChange}</div>
+                        <div class="price">$${ticker.current_price.toFixed(2)}</div>
+                        <div class="sentiment-badge ${sentimentClass}">
+                            ${ticker.sentiment} (${Math.abs(ticker.sentiment_score).toFixed(1)})
+                        </div>
+                        
+                        ${ticker.short_squeeze_alert && ticker.short_squeeze_alert.has_alert ? `
+                            <div class="squeeze-alert">
+                                🚀 SHORT SQUEEZE ALERT<br>
+                                <strong>${ticker.short_squeeze_alert.confidence}</strong> confidence<br>
+                                Score: ${ticker.short_squeeze_alert.squeeze_score}/100
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            
+            document.getElementById('results').innerHTML = html || 
+                '<div class="notification-card">No tickers to display</div>';
+        }
+        
+        function refreshData() {
+            loadLatestData();
+        }
+    </script>
+</body>
+</html>
